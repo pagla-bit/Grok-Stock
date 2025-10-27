@@ -370,7 +370,7 @@ with col2:
     market_cap = info.get('marketCap', None)
     if market_cap:
         market_cap_b = market_cap / 1_000_000
-        mc_str = f"${market_cap_b:.0f}B"
+        mc_str = f"${market_cap_b:.0f}M"
     else:
         mc_str = 'N/A'
     pe = info.get('forwardPE', 'N/A')
