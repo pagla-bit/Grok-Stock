@@ -8,6 +8,7 @@
 # - Batch watchlist summaries with fundamentals (P/E).
 # - Placeholder for sentiment (requires nltk, vaderSentiment).
 # - Fixed: Added OHLCV column validation in get_data to prevent KeyError on missing 'Low'/'High'.
+# - Added: CNN Fear & Greed Index for market sentiment.
 
 import streamlit as st
 import pandas as pd
@@ -16,6 +17,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
+import requests
+import json
 
 # For sentiment (optional: pip install nltk vaderSentiment)
 try:
@@ -226,9 +229,55 @@ def estimate_days_to_target(df, current_price, target_return, sims=10000, max_da
     perc90 = np.percentile(valid_days, 90) if len(valid_days) > 0 else np.nan
     return {'probability': prob_reach, 'median_days': float(median_days) if not np.isnan(median_days) else None, '90pct_days': float(perc90) if not np.isnan(perc90) else None}
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_fear_greed_index():
+    try:
+        from datetime import date
+        today = date.today().isoformat()
+        url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{today}"
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        fear_greed = data['fear_and_greed']
+        score = fear_greed['score']
+        rating = fear_greed['rating']
+        
+        # Color logic
+        if score < 25:
+            color = '🟥 Extreme Fear'
+        elif score < 45:
+            color = '🔴 Fear'
+        elif score < 55:
+            color = '🟡 Neutral'
+        elif score < 75:
+            color = '🟢 Greed'
+        else:
+            color = '🟩 Extreme Greed'
+        
+        return score, rating, color
+    except Exception as e:
+        st.warning(f"Could not fetch Fear & Greed: {e}. Using fallback.")
+        return None, 'N/A', 'N/A'
+
 # ------------------------- Streamlit UI -------------------------
 
 st.title('Enhanced Stock Watch + Indicator Dashboard')
+
+# Fear & Greed Index (market-wide)
+st.markdown("---")
+st.subheader("Market Sentiment: Fear & Greed Index")
+score, rating, color_emoji = get_fear_greed_index()
+if score is not None:
+    col_fg1, col_fg2, col_fg3 = st.columns([1, 3, 1])
+    with col_fg1:
+        st.metric("Score", score, delta=None)
+    with col_fg2:
+        st.write(f"**{rating}** {color_emoji}")
+    with col_fg3:
+        st.progress(score / 100)  # Visual gauge
+else:
+    st.info("Fear & Greed data unavailable.")
+st.markdown("---")
 
 # Static groups (updated approximate caps as of Oct 2025)
 big_cap = 'AAPL, MSFT, GOOGL, AMZN, META, NVDA, TSLA, JPM, JNJ, V'
@@ -382,13 +431,14 @@ st.markdown('---')
 
 st.write('Notes and limitations:')
 st.write('- Enhanced with weighted signals, ADX, ATR/BB, SPY corr, sentiment (if enabled), and bootstrapped MC sims.')
+st.write('- Added CNN Fear & Greed Index for market sentiment; contrarian adjustments optional.')
 st.write('- Backtest rules for your portfolio; predictions are probabilistic.')
 st.write('- Tune via sidebar; for production, add backtesting (e.g., backtrader).')
 
 st.write('To run:')
 st.code("""
 # Install dependencies
-pip install streamlit yfinance pandas numpy nltk vaderSentiment
+pip install streamlit yfinance pandas numpy nltk vaderSentiment requests
 # Run
 streamlit run streamlit_stock_dashboard.py
 """)
