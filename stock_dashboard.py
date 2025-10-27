@@ -369,7 +369,7 @@ with col2:
     vol_str = f"{volume_m:.2f}M pcs"
     market_cap = info.get('marketCap', None)
     if market_cap:
-        market_cap_b = market_cap / 1_000_000_000
+        market_cap_b = market_cap / 1_000_000
         mc_str = f"${market_cap_b:.0f}B"
     else:
         mc_str = 'N/A'
