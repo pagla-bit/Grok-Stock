@@ -7,6 +7,7 @@
 # - Advanced Monte Carlo (lognormal, bootstrapped, rolling volatility).
 # - Batch watchlist summaries with fundamentals (P/E).
 # - Placeholder for sentiment (requires nltk, vaderSentiment).
+# - Fixed: Added OHLCV column validation in get_data to prevent KeyError on missing 'Low'/'High'.
 
 import streamlit as st
 import pandas as pd
@@ -35,6 +36,11 @@ def get_data(ticker, period='1y', interval='1d'):
     try:
         tk = yf.Ticker(ticker)
         hist = tk.history(period=period, interval=interval, actions=False, auto_adjust=True)
+        # Validate full OHLCV structure
+        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        missing_cols = set(required_cols) - set(hist.columns)
+        if hist.empty or len(missing_cols) > 0:
+            raise ValueError(f"Incomplete OHLCV data: missing columns {missing_cols}")
         if len(hist) < 50:
             raise ValueError("Insufficient historical data (need at least 50 periods)")
         info = tk.info if hasattr(tk, 'info') else {}
@@ -125,14 +131,15 @@ def rule_based_signal(df, rsi_oversold=30, rsi_overbought=70):
 
     # Volume normalized by ATR (relative volume)
     vol_avg20 = df['Volume'].rolling(20).mean().iloc[-1]
-    vol_atr_norm = latest['Volume'] / (vol_avg20 * (1 + latest['ATR'] / latest['Close']))
+    atr_norm_factor = (1 + (latest['ATR'] / latest['Close']) if not np.isnan(latest['ATR']) else 1)
+    vol_atr_norm = latest['Volume'] / (vol_avg20 * atr_norm_factor)
     if vol_atr_norm > 1.5:
         signals.append(('Normalized volume spike -> CONFIRMS recent move', weights['Volume']))
 
-    # ADX trend strength
-    if latest['ADX'] > 25:
+    # ADX trend strength (skip if NaN)
+    if not np.isnan(latest['ADX']) and latest['ADX'] > 25:
         signals.append(('Strong trend (ADX>25) -> AMPLIFY signals', weights['ADX']))
-    else:
+    elif not np.isnan(latest['ADX']):
         signals.append(('Weak trend (ADX<25) -> CAUTION', -weights['ADX'] * 0.5))  # Mild bearish weight
 
     # Weighted votes
@@ -265,7 +272,7 @@ if st.button('Generate Batch Summary'):
         hist, info = get_data(ticker, period=lookback, interval=interval)
         if hist.empty:
             continue
-        df = calc_indicators(hist, rsi_period=rsi_period, rsi_oversold=rsi_oversold, rsi_overbought=rsi_overbought)
+        df = calc_indicators(hist, rsi_period=rsi_period)
         rec, _, conf = rule_based_signal(df, rsi_oversold=rsi_oversold, rsi_overbought=rsi_overbought)
         pe = info.get('forwardPE', 'N/A')
         corr = get_correlation(df)
