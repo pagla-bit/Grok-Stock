@@ -369,8 +369,11 @@ with col2:
     vol_str = f"{volume_m:.2f}M pcs"
     market_cap = info.get('marketCap', None)
     if market_cap:
-        market_cap_b = market_cap / 1_000_000
-        mc_str = f"${market_cap_b:.0f}M"
+        market_cap_m = market_cap / 1_000_000
+        if market_cap_m < 1:
+            mc_str = '<$1M'
+        else:
+            mc_str = f"${market_cap_m:,.0f}M"
     else:
         mc_str = 'N/A'
     pe = info.get('forwardPE', 'N/A')
