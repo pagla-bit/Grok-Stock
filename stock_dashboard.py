@@ -8,13 +8,13 @@
 # - Batch watchlist summaries with fundamentals (P/E).
 # - Placeholder for sentiment (requires nltk, vaderSentiment).
 # - Fixed: Added OHLCV column validation in get_data to prevent KeyError on missing 'Low'/'High'.
-# - Added: CNN Fear & Greed Index for market sentiment.
+# - Added: CNN Fear & Greed Index for market sentiment (with fallback to yesterday's date and User-Agent).
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import warnings
 warnings.filterwarnings('ignore')
 import requests
@@ -231,33 +231,44 @@ def estimate_days_to_target(df, current_price, target_return, sims=10000, max_da
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_fear_greed_index():
-    try:
-        from datetime import date
-        today = date.today().isoformat()
-        url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{today}"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        fear_greed = data['fear_and_greed']
-        score = fear_greed['score']
-        rating = fear_greed['rating']
-        
-        # Color logic
-        if score < 25:
-            color = '🟥 Extreme Fear'
-        elif score < 45:
-            color = '🔴 Fear'
-        elif score < 55:
-            color = '🟡 Neutral'
-        elif score < 75:
-            color = '🟢 Greed'
-        else:
-            color = '🟩 Extreme Greed'
-        
-        return score, rating, color
-    except Exception as e:
-        st.warning(f"Could not fetch Fear & Greed: {e}. Using fallback.")
-        return None, 'N/A', 'N/A'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    base_url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/"
+    dates_to_try = [
+        date.today().isoformat(),
+        (date.today() - timedelta(days=1)).isoformat(),
+        (date.today() - timedelta(days=2)).isoformat()
+    ]
+    
+    for d in dates_to_try:
+        try:
+            url = base_url + d
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            fear_greed = data['fear_and_greed']
+            score = fear_greed['score']
+            rating = fear_greed['rating']
+            
+            # Color logic
+            if score < 25:
+                color = '🟥 Extreme Fear'
+            elif score < 45:
+                color = '🔴 Fear'
+            elif score < 55:
+                color = '🟡 Neutral'
+            elif score < 75:
+                color = '🟢 Greed'
+            else:
+                color = '🟩 Extreme Greed'
+            
+            return score, rating, color
+        except Exception as e:
+            continue  # Try next date
+    
+    st.warning("Could not fetch Fear & Greed data. Using fallback.")
+    return None, 'N/A', 'N/A'
 
 # ------------------------- Streamlit UI -------------------------
 
@@ -431,7 +442,7 @@ st.markdown('---')
 
 st.write('Notes and limitations:')
 st.write('- Enhanced with weighted signals, ADX, ATR/BB, SPY corr, sentiment (if enabled), and bootstrapped MC sims.')
-st.write('- Added CNN Fear & Greed Index for market sentiment; contrarian adjustments optional.')
+st.write('- Added CNN Fear & Greed Index for market sentiment (fetches latest available date with User-Agent).')
 st.write('- Backtest rules for your portfolio; predictions are probabilistic.')
 st.write('- Tune via sidebar; for production, add backtesting (e.g., backtrader).')
 
